@@ -1,0 +1,77 @@
+---
+#---------------------------------------------------------------------------------------------#
+#                                                                                             #
+#                                     TEST                                                    #
+#                                check_all_host_user_expire.yaml                              #
+#                                                                                             #
+#                                                                                             #
+#                                                                                             #
+#                                                                                             #
+#---------------------------------------------------------------------------------------------#
+
+- hosts: 
+
+#---------------------------------------------------------------------------------------------#
+
+    - name: Get User Password Age In Days
+      shell: echo $(( ($(date +%s) - $(date +%s -d "$(chage -l "{{ ansible_ssh_user }}" | head -1 | cut -d ':' -f 2)")) / 86400 ))
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register:  get_user_password_age_in_days
+
+#---------------------------------------------------------------------------------------------#
+
+    - name: Print Password Age In Days
+      ansible.builtin.debug:
+         msg: "{{ get_user_password_age_in_days.stdout |int }}"
+
+#---------------------------------------------------------------------------------------------#
+
+    - name: Check Expire Pass For The Affected User"
+      shell: echo "UserName -  $(whoami)";chage -l "{{ ansible_ssh_user }}"
+      register: check_expire_password_for_user
+      when:
+         - "( {{ get_user_password_age_in_days.stdout |int }} > 325 )"
+
+#---------------------------------------------------------------------------------------------#
+
+    - name: Print Expire Pass For The Affected User"
+      ansible.builtin.debug:
+        var: check_expire_password_for_user.stdout_lines
+      when:
+         - "( {{ get_user_password_age_in_days.stdout |int }} > 325 )"
+
+#---------------------------------------------------------------------------------------------#
+
+    - name: Save All Expire Pass For The Affected User 
+      ansible.builtin.copy:
+         content: "{{ check_expire_password_for_user.stdout_lines | to_nice_json }}"
+         dest:  "/home/Ansible_Scripts/user_will_be_locked/Logs/check_expire_password_for_user_{{ ansible_ssh_user }}_server_{{ ansible_fqdn }}_{{ ansible_date_time.date }}.log"
+      register: save_all_expire_pass_for_the_affected_user
+      when:
+         - check_expire_password_for_user.changed
+         - "( {{ get_user_password_age_in_days.stdout |int }} > 325 )"
+      delegate_to: localhost
+
+#---------------------------------------------------------------------------------------------#
+
+    - name: Send An E-Mail For Password Expire Of Each User
+      mail:
+         host: ****
+         port: 25
+         sender: ***
+         to:
+             - Yavor Nikolaev Ivanov test@test
+         subject: WARNING - Password Expire Of User {{ ansible_ssh_user }} Server {{ ansible_fqdn }} !
+         body: Password Of The User {{ ansible_ssh_user }} Will Expire Soon Please Check {{ ansible_fqdn }} Server !
+         attach:
+            - "/home/Ansible_Scripts/user_will_be_locked/Logs/check_expire_password_for_user_{{ ansible_ssh_user }}_server_{{ ansible_fqdn }}_{{ ansible_date_time.date }}.log"    
+      delegate_to: localhost
+      when: 
+         - "( {{ get_user_password_age_in_days.stdout |int }} > 325 )"
+         - save_all_expire_pass_for_the_affected_user is succeeded
+
+#---------------------------------------------------------------------------------------------#
+...
+
